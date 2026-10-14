@@ -48,11 +48,12 @@ static int send_one_request(const struct sockaddr_in *server)
 
 int numericValue(char *command)
 {
-    if (strcmp(comand, "SUBMIT") == 0) return V_SUBMIT;
-    if (strcmp(comand, "STATUS") == 0) return V_STATUS;
-    if (strcmp(comand, "PEEK") == 0) return V_PEEK;
-    if (strcmp(comand, "RESULT") == 0) return V_RESULT;
-    if (strcmp(comand, "SHUTDOWN") == 0) return V_SHUTDOWN;
+    if (strcmp(command, "SUBMIT") == 0) return V_SUBMIT;
+    if (strcmp(command, "STATUS") == 0) return V_STATUS;
+    if (strcmp(command, "PEEK") == 0) return V_PEEK;
+    if (strcmp(command, "RESULT") == 0) return V_RESULT;
+    if (strcmp(command, "SHUTDOWN") == 0) return V_SHUTDOWN;
+    return 0;
 }
 
 int main(int argc, char **argv)
@@ -64,11 +65,11 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
  
-    switch (numericValue(argv[5]) {
+    switch (numericValue(argv[3]) {
         case V_SUBMIT:  
             //SUBMIT nx ny steps threads k sx sy 
             //OK <id>  BUSY  ERROR <reason>         
-            if (argc < 11) {
+            if (argc != 11) {
                 fprintf(stderr,"usage: %s <host> <port> SUBMIT nx ny steps threads k sx sy\n",
                         argv[0]);
                 return EXIT_FAILURE;
@@ -77,7 +78,7 @@ int main(int argc, char **argv)
         case V_STATUS:
             //STATUS <id> 
             //QUEUED <position> RUNNING <step>/<total>  DONE <seconds>  ERROR <reason>
-            if (argc < 5) {
+            if (argc != 5) {
                 fprintf(stderr,"usage: %s <host> <port> STATUS <id>\n",
                         argv[0]);
                 return EXIT_FAILURE;
@@ -86,7 +87,7 @@ int main(int argc, char **argv)
         case V_PEEK:
             //PEEK <id> <i> <j> 
             //VALUE <step> <ez>: last published snapshot value
-            if (argc < 7) {
+            if (argc != 7) {
                 fprintf(stderr,"usage: %s <host> <port> PEEK <id> <i> <j>\n",
                         argv[0]);
                 return EXIT_FAILURE;
@@ -95,8 +96,8 @@ int main(int argc, char **argv)
         case V_RESULT:
             //RESULT <id> 
             //RESULT <add_abs_ez> <file> when job ends
-            if (argc < 5) {
-                fprintf(stderr,"usage: %s <host> <port> PEEK <id> <i> <j>\n",
+            if (argc != 5) {
+                fprintf(stderr,"usage: %s <host> <port> RESULT <id>\n",
                         argv[0]);
                 return EXIT_FAILURE;
             }
@@ -104,14 +105,14 @@ int main(int argc, char **argv)
         case V_SHUTDOWN:
             //SHUTDOWN 
             //BYE: Server stop taking jobs, end current job, empty buffer, free resources
-            if (argc < 4) {
+            if (argc != 4) {
                 fprintf(stderr,"usage: %s <host> <port> SHUTDOWN\n",
                         argv[0]);
                 return EXIT_FAILURE;
             }
             break;
         default:
-            fprintf(stderr,"Valid commands:\n");
+            fprintf(stderr,"Unknown command: %s. Valid commands:\n",argv[3]);
             fprintf(stderr,"SUBMIT nx ny steps threads k sx sy\n");
             fprintf(stderr,"STATUS <id>\n");
             fprintf(stderr,"PEEK <id> <i> <j> \n");

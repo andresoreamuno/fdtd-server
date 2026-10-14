@@ -1,8 +1,8 @@
 //
-// Created by Sleyter Angulo on 9/14/26.
+// Based on net_util.c created by Sleyter Angulo on 9/14/26.
 //
 
-#include "../includes/net_util.h"
+#include "../include/net_util.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -68,47 +68,43 @@ int nu_write_all(int file_descriptor, const void* buffer, size_t size)
     return 0;
 }
 
-ssize_t nu_drain_request(int file_descriptor)
+ssize_t nu_read_request(int file_descriptor, char *buffer, size_t size)
 {
-    char buffer[2048];
-    ssize_t n;
+    if (size == 0)
+        return -1;
+    
+    size_t read = 0;
 
-    do {
-        n = read(file_descriptor, buffer, sizeof buffer);
-    } while (n < 0 && errno == EINTR);
+    while (read < (size-1))
+    {
+        ssize_t n = read(file_descriptor, buffer + read, (size-1)-read);    
 
-    if (n < 0)
-        perror("read");
+        if (n < 0)
+        {
+            perror("read");
+            return -1;
+        }
+
+        //EOF
+        if (n == 0)
+        {
+            //if something already read return error code, else 0
+            if (read == 0) 
+                return 0;
+            else 
+                return -1;
+        }
+        
+        char *line = memchr(buffer + read, '\n', (size_t)n);
+        used += (size_t)n;
+        //if line not null => line end found, replace line end with string end
+        if (line != NULL)
+        {
+            *line = '\0';
+            return (ssize_t)(line - buffer);
+
+        }
+    }
 
     return n;
-}
-
-int nu_send_response(int file_descriptor, unsigned long connection_id)
-{
-    char body[128];
-    char header[256];
-
-    int body_len = snprintf(body, sizeof body,
-                            "connection %lu handled\n", connection_id);
-    if (body_len < 0 || (size_t)body_len >= sizeof body) {
-        fprintf(stderr, "nu_send_response: body truncated\n");
-        return -1;
-    }
-
-    int header_len = snprintf(header, sizeof header,
-                              "HTTP/1.1 200 OK\r\n"
-                              "Content-Type: text/plain\r\n"
-                              "Content-Length: %d\r\n"
-                              "Connection: close\r\n"
-                              "\r\n",
-                              body_len);
-    if (header_len < 0 || (size_t)header_len >= sizeof header) {
-        fprintf(stderr, "nu_send_response: header truncated\n");
-        return -1;
-    }
-
-    if (nu_write_all(file_descriptor, header, (size_t)header_len) < 0)
-        return -1;
-
-    return nu_write_all(file_descriptor, body, (size_t)body_len);
 }
