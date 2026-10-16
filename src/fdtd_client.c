@@ -144,12 +144,12 @@ int main(int argc, char **argv)
     //prepare message string
     char request[BUFFER_SIZE] = "";
     for (int i = 3; i < argc; ++i) {
-        if (strlen(request) + strlen(argv[i] + 2 > sizeof request)) {
+        if (strlen(request) + strlen(argv[i]) + 2 > sizeof request) {
             fprintf(stderr,"Buffer size exceeded\n");
             return EXIT_FAILURE;
         }
         strcat(request, argv[i]);
-        strcat(request, (i < argc - 1)? "":"\n");
+        strcat(request, (i < argc - 1)? " ":"\n");
     }
 
     //send request
