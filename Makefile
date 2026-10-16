@@ -1,38 +1,38 @@
-# TDTD Server — build rules
+# FDTD Server — build rules
 #
 #   make          build everything into bin/
 #   make clean    remove build/ and bin/
 #
 # Object files and binaries never land next to the sources.
 
-CC       ?= cc
-CFLAGS   ?= -std=c11 -Wall -Wextra -Wpedantic -O2 -pthread
-LDFLAGS  ?= -pthread
+CC       := cc
+CFLAGS   := -std=c17 -Wall -Wextra -pedantic -O2 -pthread
+LDFLAGS  := -pthread
 
 SRC_DIR   := src
-INC_DIR   := includes
+INC_DIR   := include
 BUILD_DIR := build
 BIN_DIR   := bin
 
-CPPFLAGS ?= -I$(INC_DIR) -MMD -MP
+CPPFLAGS := -I$(INC_DIR) -MMD -MP
 
-# net_util is linked into both servers but not into the client.
+# net_util linked to server and client.
 COMMON_OBJ := $(BUILD_DIR)/net_util.o
 
-PROGRAMS := fdtd_server, fdtd_client, fdtd_bench
+PROGRAMS := fdtd_server fdtd_client fdtd_bench
 BINARIES := $(addprefix $(BIN_DIR)/,$(PROGRAMS))
 
 .PHONY: all clean
 
 all: $(BINARIES)
 
-$(BIN_DIR)/server_unsafe: $(BUILD_DIR)/fdtd_server.o $(COMMON_OBJ) | $(BIN_DIR)
+$(BIN_DIR)/fdtd_server: $(BUILD_DIR)/fdtd_server.o $(COMMON_OBJ) | $(BIN_DIR)
 	$(CC) $(LDFLAGS) -o $@ $^
 
-$(BIN_DIR)/server_safe: $(BUILD_DIR)/fdtd_client.o $(COMMON_OBJ) | $(BIN_DIR)
+$(BIN_DIR)/fdtd_client: $(BUILD_DIR)/fdtd_client.o $(COMMON_OBJ) | $(BIN_DIR)
 	$(CC) $(LDFLAGS) -o $@ $^
 
-$(BIN_DIR)/load_client: $(BUILD_DIR)/fdtd_bench.o | $(BIN_DIR)
+$(BIN_DIR)/fdtd_bench: $(BUILD_DIR)/fdtd_bench.o | $(BIN_DIR)
 	$(CC) $(LDFLAGS) -o $@ $^
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)

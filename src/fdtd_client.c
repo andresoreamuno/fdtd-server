@@ -5,6 +5,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include "net_util.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
@@ -20,33 +21,42 @@
 #define V_RESULT 4
 #define V_SHUTDOWN 5
 
+#define BUFFER_SIZE 100
 
-static int send_one_request(const struct sockaddr_in *server)
+static int send_one_request(const struct sockaddr_in *server, const char *request, char *response, size_t size)
 {
     int file_descriptor = socket(AF_INET, SOCK_STREAM, 0);
     if (file_descriptor < 0)
+    {
+        perror("socket");
         return -1;
-
+    }
     if (connect(file_descriptor, (const struct sockaddr *)server, sizeof *server) < 0) {
+        perror("connect");
         close(file_descriptor);
         return -1;
     }
 
-    static const char request[] = "GET / HTTP/1.1\r\nHost: bench\r\n\r\n";
-    if (write(file_descriptor, request, sizeof request - 1) < 0) {
+    //send request
+    if (nu_write_all(file_descriptor,request,strlen(request)) < 0){
         close(file_descriptor);
         return -1;
     }
 
-    char buffer[1024];
-    while (read(file_descriptor, buffer, sizeof buffer) > 0)
-        ;   /* read until the server closes */
+    //read response
+    ssize_t n = nu_read_request(file_descriptor, response, size);
 
     close(file_descriptor);
+
+    //invalid responses
+    if (n <= 0){
+        fprintf(stderr, "no response from server\n");
+    }
+
     return 0;
 }
 
-int numericValue(char *command)
+static int numericValue(const char *command)
 {
     if (strcmp(command, "SUBMIT") == 0) return V_SUBMIT;
     if (strcmp(command, "STATUS") == 0) return V_STATUS;
@@ -65,7 +75,7 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
  
-    switch (numericValue(argv[3]) {
+    switch (numericValue(argv[3])) {
         case V_SUBMIT:  
             //SUBMIT nx ny steps threads k sx sy 
             //OK <id>  BUSY  ERROR <reason>         
@@ -130,6 +140,25 @@ int main(int argc, char **argv)
         fprintf(stderr, "invalid host '%s'\n", argv[1]);
         return EXIT_FAILURE;
     }
+
+    //prepare message string
+    char request[BUFFER_SIZE] = "";
+    for (int i = 3; i < argc; ++i) {
+        if (strlen(request) + strlen(argv[i] + 2 > sizeof request)) {
+            fprintf(stderr,"Buffer size exceeded\n");
+            return EXIT_FAILURE;
+        }
+        strcat(request, argv[i]);
+        strcat(request, (i < argc - 1)? "":"\n");
+    }
+
+    //send request
+    char response[BUFFER_SIZE];
+    if (send_one_request(&server, request, response, sizeof response) != 0)
+        return EXIT_FAILURE;
+    
+    printf("Response %s\n", response);
+
 
     return EXIT_SUCCESS;
 }

@@ -2,7 +2,7 @@
 // Based on net_util.c created by Sleyter Angulo on 9/14/26.
 //
 
-#include "../include/net_util.h"
+#include "net_util.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -24,6 +24,7 @@ int nu_listen(unsigned short port, int backlog)
     if (setsockopt(file_descriptor, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) < 0)
     {
         perror("setsockopt");
+        close(file_descriptor);
         return -1;
     }
 
@@ -73,11 +74,11 @@ ssize_t nu_read_request(int file_descriptor, char *buffer, size_t size)
     if (size == 0)
         return -1;
     
-    size_t read = 0;
+    size_t read_bytes = 0;
 
-    while (read < (size-1))
+    while (read_bytes < (size-1))
     {
-        ssize_t n = read(file_descriptor, buffer + read, (size-1)-read);    
+        ssize_t n = read(file_descriptor, buffer + read_bytes, (size-1)-read_bytes);    
 
         if (n < 0)
         {
@@ -89,14 +90,14 @@ ssize_t nu_read_request(int file_descriptor, char *buffer, size_t size)
         if (n == 0)
         {
             //if something already read return error code, else 0
-            if (read == 0) 
+            if (read_bytes == 0) 
                 return 0;
             else 
                 return -1;
         }
         
-        char *line = memchr(buffer + read, '\n', (size_t)n);
-        used += (size_t)n;
+        char *line = memchr(buffer + read_bytes, '\n', (size_t)n);
+        read_bytes += (size_t)n;
         //if line not null => line end found, replace line end with string end
         if (line != NULL)
         {
@@ -106,5 +107,5 @@ ssize_t nu_read_request(int file_descriptor, char *buffer, size_t size)
         }
     }
 
-    return n;
+    return -1;
 }

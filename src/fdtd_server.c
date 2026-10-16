@@ -4,9 +4,10 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include "net_util.h"
+#include "fdtd_server.h"
 #include <errno.h>
 #include <pthread.h>
-#include <sched.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,7 +21,16 @@
 
 static volatile sig_atomic_t g_running = 1;
 
-#include "fdtd_server.h"
+typedef struct {
+    int file_descriptor;
+    unsigned long connection_id;
+} connection_t;
+
+static void on_sigint(int signum)
+{
+    (void)signum;
+    g_running = 0;
+}
 
 static int install_signal_handlers(void)
 {
@@ -62,7 +72,7 @@ static void *handle_connection(void *arg)
         printf("[Handling connection %lu] received\n", conn->connection_id);
         fflush(stdout);
 
-        char_reply[BUFFER_SIZE];
+        char reply[BUFFER_SIZE];
         sprintf(reply,"RECEIVED %zd bytes\n", n);
         nu_write_all(conn->file_descriptor, reply, strlen(reply));
     }
@@ -110,6 +120,8 @@ void* fdtd_solver(void *arg_data){
             }
         }
     }
+
+    return NULL;
 
 }
 
@@ -182,11 +194,10 @@ int main(int argc, char **argv)
         perror("close(listen_file_descriptor)");
     }
 
-    sleep(DRAIN_SECONDS);
+    sleep(1);//temp, until shutdown
 
     printf("\naccepted: %lu\n", accepted);
-    printf("served:   %lu\n", g_requests_served);
-    printf("lost:     %ld\n", (long)accepted - (long)g_requests_served);
+
 
     return EXIT_SUCCESS;
 }
