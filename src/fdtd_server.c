@@ -1,4 +1,5 @@
 //
+// Server - Server FDTD / CI-0117 
 // Based on server_unsafe.c created by Sleyter Angulo on 9/17/26.
 //
 
@@ -16,6 +17,7 @@
 #include <unistd.h>
 #include <semaphore.h>
 #include <stdbool.h>
+#include <time.h>
 
 #define V_SUBMIT 1
 #define V_STATUS 2
@@ -23,11 +25,16 @@
 #define V_RESULT 4
 #define V_SHUTDOWN 5
 
-#define DEFAULT_PORT 8080
-#define LISTEN_BACKLOG 64
+#define V_JOB_QUEUED 0
+#define V_JOB_RUNNING 1
+#define V_JOB_DONE 2
+
+#define DEFAULT_PORT 8080 //Default port used if not other specified
+#define LISTEN_BACKLOG 64 //Max socket connection waiting for accept 
 #define BUFFER_SIZE 100 //Socket buffer max size
-#define QUEUE_CAPACITY 8 
+#define QUEUE_CAPACITY 8 //Job queue capacity
 #define MAX_SIZE 100000 //Max value for SUBMIT params
+#define MAX_JOBS 10000 //Server job limit per session
 
 static volatile sig_atomic_t g_running = 1;
 
@@ -51,6 +58,18 @@ typedef struct {
     pthread_mutex_t mutex; //Critical zone mutex
 } job_queue_t;
 
+typedef struct {
+    job_t job;  
+    int state; //V_JOB_QUEUED,V_JOB_RUNNING,V_JOB_DONE
+    struct timespec start;
+    struct timespec end;
+} job_info_t;
+
+typedef struct {
+    job_info_t job[MAX_JOBS+1]; 
+    pthread_mutex_t mutex; 
+} job_table_t;
+
 static job_queue_t g_job_queue = {
     .front = 0,
     .back = 0,
@@ -58,6 +77,9 @@ static job_queue_t g_job_queue = {
     .mutex = PTHREAD_MUTEX_INITIALIZER
 };
 
+static job_table_t g_job_table = {
+    .mutex = PTHREAD_MUTEX_INITIALIZER
+};
 
 static unsigned long enqueue_job(job_queue_t *queue, job_t *job)
 {
@@ -66,9 +88,23 @@ static unsigned long enqueue_job(job_queue_t *queue, job_t *job)
 
     pthread_mutex_lock(&queue->mutex);
 
+    //server maximum jobs exceeded
+    if (queue->next_id > MAX_JOBS)
+    {
+        pthread_mutex_unlock(&queue->mutex);
+        sem_post(&queue->free);
+        return 0;
+    }
+
     job->id = queue->next_id++;
     queue->jobs[queue->back] = *job;
     queue->back = (queue->back  + 1) % QUEUE_CAPACITY;
+
+    //change job status to queued
+    pthread_mutex_lock(&g_job_table.mutex);
+    g_job_table.job[job->id].job = *job;
+    g_job_table.job[job->id].state = V_JOB_QUEUED;
+    pthread_mutex_unlock(&g_job_table.mutex);
 
     pthread_mutex_unlock(&queue->mutex);
 
@@ -121,13 +157,27 @@ static void *dispatcher(void *arg)
         //id = 0 => pill, end cycle
         if (job.id == 0)
             break;
-
-        //TODO: replace print and sleep with solver threads call     
+    
         printf("Dispatcher: job %lu: %dx%d, %d steps, %d threads, k=%d, source (%d,%d)\n",
                                 job.id, job.nx,job.ny,job.steps,job.threads, job.k, job.sx, job.sy);
         fflush(stdout);
 
+        //change job status to running
+        pthread_mutex_lock(&g_job_table.mutex);
+        g_job_table.job[job.id].state = V_JOB_RUNNING;
+        clock_gettime(CLOCK_MONOTONIC, &g_job_table.job[job.id].start);
+        pthread_mutex_unlock(&g_job_table.mutex);
+
+
+        //TODO: replace with solver call
         sleep(1);
+
+
+        //change job status to done
+        pthread_mutex_lock(&g_job_table.mutex);
+        g_job_table.job[job.id].state = V_JOB_RUNNING;
+        clock_gettime(CLOCK_MONOTONIC, &g_job_table.job[job.id].start);
+        pthread_mutex_unlock(&g_job_table.mutex);
     }
         
     return NULL;
@@ -173,8 +223,77 @@ static const char *parse_submit(char **rest, job_t *job)
     if (job->sx >= job->nx || job->sy >= job->ny)
         return "invalid source address";
     
-    return NULL;    
+    return NULL;  
+}
 
+static const char *parse_id(char **rest, unsigned long *id)
+{
+    char *param = strtok_r(NULL, " ", rest);
+    if (param == NULL)
+        return "missing id";
+
+    char *end = NULL;
+    errno = 0;
+    long value = strtol(param, &end, 10);
+    if (errno != 0 || end == param || *end != '\0' || value < 1 || value > MAX_JOBS)
+            return "invalid id";
+
+    if (strtok_r(NULL," ", rest) != NULL)
+        return "too many params";
+
+    *id = (unsigned long)value;
+    return NULL;   
+}
+
+static double duration(struct timespec start, struct timespec end)
+{
+    return (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
+}
+
+static void get_status(unsigned long id, char *reply)
+{
+    pthread_mutex_lock(&g_job_table.mutex);
+
+    job_info_t *info = &g_job_table.job[id];
+
+    if (info->job.id == 0)
+    {
+        sprintf(reply,"ERROR unknown job\n");
+        pthread_mutex_unlock(&g_job_table.mutex);
+        return;
+    }
+
+    switch (info->state)
+    {
+        case V_JOB_QUEUED:
+        {
+            unsigned long position = 1;
+            for (unsigned long i = 1; 1 < id; ++i)
+                if (g_job_table.job[i].state == V_JOB_QUEUED)
+                    ++position;
+
+            sprintf(reply, "QUEUED %lu\n", position);
+            break;
+        }
+        case V_JOB_RUNNING:
+        {
+            //TODO
+            sprintf(reply, "RUNNING\n");
+            break;
+        }
+        case V_JOB_DONE:
+        {
+            sprintf(reply, "DONE %f\n", duration(info->start,info->end));
+            break;
+        }
+        default:
+        {
+            sprintf(reply, "ERROR unknown job\n");
+            break;
+        }
+    }
+
+    pthread_mutex_unlock(&g_job_table.mutex);
 }
 
 static void on_sigint(int signum)
@@ -263,18 +382,27 @@ static void *handle_connection(void *arg)
                     }
                     break;
                 }
-                //TODO...
+                
                 case V_STATUS:
-                    sprintf(reply, "pending...\n");
-                    break;   
+                {
+                    unsigned long id;
+                    const char *error = parse_id(&rest, &id);
+
+                    if (error != NULL)
+                        sprintf(reply, "ERROR %s\n", error);
+                    else
+                        get_status(id, reply);
+                    break; 
+                }  
+                //TODO
                 case V_PEEK:
-                    sprintf(reply, "pending...\n");
+                    sprintf(reply, "PEEK pending...\n");
                     break;
                 case V_RESULT:
-                    sprintf(reply, "pending...\n");
+                    sprintf(reply, "RESULT pending...\n");
                     break;
                 case V_SHUTDOWN:
-                    sprintf(reply, "pending...\n");
+                    sprintf(reply, "SHUTDOWN pending...\n");
                     break;
                 default:
                     sprintf(reply, "ERROR wrong command\n");
@@ -428,6 +556,7 @@ int main(int argc, char **argv)
     sem_destroy(&g_job_queue.free);
     sem_destroy(&g_job_queue.busy);
     pthread_mutex_destroy(&g_job_queue.mutex);
+    pthread_mutex_destroy(&g_job_table.mutex); 
 
     printf("\naccepted: %lu\n", accepted);
 

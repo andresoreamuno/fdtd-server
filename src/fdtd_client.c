@@ -1,5 +1,5 @@
 //
-// Client Server FDTD / CI-0117 
+// Client - Server FDTD / CI-0117 
 // Based on load_client.c created by Sleyter Angulo on 9/17/26.
 //
 
