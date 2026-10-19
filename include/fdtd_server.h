@@ -44,6 +44,12 @@
 
 static volatile sig_atomic_t g_running = 1;
 
+static int g_listen_file_descriptor = -1;//global copy of listening socket (for shutdown)
+
+static int g_handling_threads = 0;
+static pthread_mutex_t g_handling_threads_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t g_handling_threads_cond = PTHREAD_COND_INITIALIZER;
+
 typedef struct {
     int file_descriptor;
     unsigned long connection_id;
