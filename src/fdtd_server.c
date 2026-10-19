@@ -8,7 +8,7 @@
 
 static unsigned long enqueue_job(job_queue_t *queue, job_t *job)
 {
-    if (sem_trywait(&queue->free) != 0)
+    if(sem_trywait(&queue->free) != 0)
         return 0;//no space taken => full queue, return code 0 so that server can inform is BUSY
 
     pthread_mutex_lock(&queue->mutex);
@@ -68,6 +68,18 @@ static void enqueue_pill(job_queue_t *queue)
     pthread_mutex_unlock(&queue->mutex);
 
     sem_post(&queue->busy);
+}
+
+static void clear_queue(job_queue_t *queue)
+{
+    while (sem_trywait(&queue->busy) == 0)
+    {
+        pthread_mutex_lock(&queue->mutex);
+        queue->front = (queue->front + 1) % QUEUE_CAPACITY;
+        pthread_mutex_unlock(&queue->mutex);
+
+        sem_post(&queue->free);
+    }
 }
 
 static void *dispatcher(void *arg)
@@ -327,7 +339,9 @@ static void *handle_connection(void *arg)
                     sprintf(reply, "RESULT pending...\n");
                     break;
                 case V_SHUTDOWN:
-                    sprintf(reply, "SHUTDOWN pending...\n");
+                    g_running = 0;
+                    shutdown(g_listen_file_descriptor,SHUT_RD);//Shutdown socket  
+                    sprintf(reply, "BYE\n");
                     break;
                 default:
                     sprintf(reply, "ERROR wrong command\n");
@@ -342,6 +356,13 @@ static void *handle_connection(void *arg)
         perror("close(file_descriptor)");
 
     free(conn);
+
+    pthread_mutex_lock(&g_handling_threads_mutex);
+    --g_handling_threads;
+    if (g_handling_threads == 0)
+        pthread_cond_signal(&g_handling_threads_cond);
+    pthread_mutex_unlock(&g_handling_threads_mutex);
+
     return NULL;
 }
 
@@ -422,6 +443,8 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
+    g_listen_file_descriptor = listen_file_descriptor; 
+
     //Init semaphores
     sem_init(&g_job_queue.free,0,QUEUE_CAPACITY);
     sem_init(&g_job_queue.busy,0,0);
@@ -449,6 +472,9 @@ int main(int argc, char **argv)
             {
                 continue;
             }
+            if (!g_running) //shutdown
+                break;
+
             perror("accept");
             break;
         }
@@ -464,6 +490,11 @@ int main(int argc, char **argv)
         conn->file_descriptor = client_file_descriptor;
         conn->connection_id = ++accepted;
 
+        //keeps handling threads count
+        pthread_mutex_lock(&g_handling_threads_mutex);
+        ++g_handling_threads;
+        pthread_mutex_unlock(&g_handling_threads_mutex);
+
         pthread_t thread_id;
 
         int pthread_created = pthread_create(&thread_id, NULL, handle_connection, conn);
@@ -474,6 +505,11 @@ int main(int argc, char **argv)
             close(client_file_descriptor);
             free(conn);
             --accepted;
+
+            pthread_mutex_lock(&g_handling_threads_mutex);
+            --g_handling_threads;
+            pthread_mutex_unlock(&g_handling_threads_mutex);
+
             continue;
         }
         pthread_created = pthread_detach(thread_id);
@@ -489,7 +525,13 @@ int main(int argc, char **argv)
         perror("close(listen_file_descriptor)");
     }
 
-    sleep(1);//temp, until shutdown
+    pthread_mutex_lock(&g_handling_threads_mutex);
+    while(g_handling_threads > 0)
+        pthread_cond_wait(&g_handling_threads_cond,&g_handling_threads_mutex);
+    pthread_mutex_unlock(&g_handling_threads_mutex);
+
+    //Clear remaining jobs in queue
+    clear_queue(&g_job_queue);
 
     //enqueue end pills
     enqueue_pill(&g_job_queue);
