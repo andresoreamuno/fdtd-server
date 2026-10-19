@@ -8,6 +8,7 @@
 CC       := cc
 CFLAGS   := -std=c17 -Wall -Wextra -pedantic -O2 -pthread
 LDFLAGS  := -pthread
+LDLIBS   := -lm
 
 SRC_DIR   := src
 INC_DIR   := include
@@ -27,7 +28,7 @@ BINARIES := $(addprefix $(BIN_DIR)/,$(PROGRAMS))
 all: $(BINARIES)
 
 $(BIN_DIR)/fdtd_server: $(BUILD_DIR)/fdtd_server.o $(COMMON_OBJ) | $(BIN_DIR)
-	$(CC) $(LDFLAGS) -o $@ $^
+	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 $(BIN_DIR)/fdtd_client: $(BUILD_DIR)/fdtd_client.o $(COMMON_OBJ) | $(BIN_DIR)
 	$(CC) $(LDFLAGS) -o $@ $^
