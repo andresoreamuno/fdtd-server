@@ -2,84 +2,9 @@
 // Server - Server FDTD / CI-0117 
 // Based on server_unsafe.c created by Sleyter Angulo on 9/17/26.
 //
-
-#define _POSIX_C_SOURCE 200809L
-
 #include "net_util.h"
 #include "fdtd_server.h"
-#include <errno.h>
-#include <pthread.h>
-#include <signal.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#include <semaphore.h>
-#include <stdbool.h>
-#include <time.h>
 
-#define V_SUBMIT 1
-#define V_STATUS 2
-#define V_PEEK 3
-#define V_RESULT 4
-#define V_SHUTDOWN 5
-
-#define V_JOB_QUEUED 0
-#define V_JOB_RUNNING 1
-#define V_JOB_DONE 2
-
-#define DEFAULT_PORT 8080 //Default port used if not other specified
-#define LISTEN_BACKLOG 64 //Max socket connection waiting for accept 
-#define BUFFER_SIZE 100 //Socket buffer max size
-#define QUEUE_CAPACITY 8 //Job queue capacity
-#define MAX_SIZE 100000 //Max value for SUBMIT params
-#define MAX_JOBS 10000 //Server job limit per session
-
-static volatile sig_atomic_t g_running = 1;
-
-typedef struct {
-    int file_descriptor;
-    unsigned long connection_id;
-} connection_t;
-
-typedef struct {
-    unsigned long id;
-    int nx, ny, steps, threads, k, sx, sy;
-} job_t;
-
-typedef struct {
-    job_t jobs[QUEUE_CAPACITY];
-    int front;
-    int back;
-    unsigned long next_id; //Id Counter
-    sem_t free; //Counter semaphore for free spaces
-    sem_t busy; //Counter semaphore for busy spaces
-    pthread_mutex_t mutex; //Critical zone mutex
-} job_queue_t;
-
-typedef struct {
-    job_t job;  
-    int state; //V_JOB_QUEUED,V_JOB_RUNNING,V_JOB_DONE
-    struct timespec start;
-    struct timespec end;
-} job_info_t;
-
-typedef struct {
-    job_info_t job[MAX_JOBS+1]; 
-    pthread_mutex_t mutex; 
-} job_table_t;
-
-static job_queue_t g_job_queue = {
-    .front = 0,
-    .back = 0,
-    .next_id = 1,
-    .mutex = PTHREAD_MUTEX_INITIALIZER
-};
-
-static job_table_t g_job_table = {
-    .mutex = PTHREAD_MUTEX_INITIALIZER
-};
 
 static unsigned long enqueue_job(job_queue_t *queue, job_t *job)
 {
@@ -440,6 +365,12 @@ static unsigned short parse_port(int argc, char **argv)
     return (unsigned short)value;
 }
 
+double ricker(int q){
+    double arg = pow((M_PI * ((SC * q))/ PPW - 1.0), 2);
+    double rick =  (1,0 - 2,0 * arg) * exp(-arg); 
+    return rick;
+}
+
 void* fdtd_solver(void *arg_data){
     fdtd_data_t *data = (fdtd_data_t *)arg_data;
     int sx = data->energy_pixel[0]; //to have easy access to the cell
@@ -449,11 +380,25 @@ void* fdtd_solver(void *arg_data){
         //Main Loop
 
         //Magentic field changes
-        for(int m = 0; m < data->nx_ny[0]; m++){
-            for(int n = 0; n < data->nx_ny[1]; n++){
+        for(int m = 0; m < data->nx_ny[0]-1; m++){
+            for(int n = 0; n < data->nx_ny[1]-2; n++){
                 data->Hx[m][n] -= (SC/IMPENDENT_VOID) * (data->Ez[m][n+1] - data->Ez[m][n]); 
             }
         }
+        for(int m = 0; m < data->nx_ny[0]-2; m++){
+            for(int n = 0; n < data->nx_ny[1]-1; n++){
+                data->Hy[m][n] -= (SC/IMPENDENT_VOID) * (data->Ez[m+1][n] - data->Ez[m][n]); 
+            }
+        }
+
+        for(int m = 0; m < data->nx_ny[0]-2; m++){ //changes the electric field
+            for(int n = 0; n < data->nx_ny[1]-2; n++){
+                data->Ez[m][n] += (SC*IMPENDENT_VOID/RELATIVITY) * (data->Ez[m][n] - data->Ez[m-1][n]) - (data->Ez[m][n] - data->Ez[m][n-1]); 
+            }
+        }
+
+        //adds wave soruce to the electric field
+        data->Ez[sx][sy] = data->Ez[sx][sy] + ricker(i);
     }
 
     return NULL;
