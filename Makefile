@@ -20,6 +20,9 @@ CPPFLAGS := -I$(INC_DIR) -MMD -MP
 # net_util linked to server and client.
 COMMON_OBJ := $(BUILD_DIR)/net_util.o
 
+# solver
+SOLVER_OBJ := $(BUILD_DIR)/fdtd_solver.o $(BUILD_DIR)/fdtd_barrier.o
+
 PROGRAMS := fdtd_server fdtd_client fdtd_bench
 BINARIES := $(addprefix $(BIN_DIR)/,$(PROGRAMS))
 
@@ -27,7 +30,7 @@ BINARIES := $(addprefix $(BIN_DIR)/,$(PROGRAMS))
 
 all: $(BINARIES)
 
-$(BIN_DIR)/fdtd_server: $(BUILD_DIR)/fdtd_server.o $(COMMON_OBJ) | $(BIN_DIR)
+$(BIN_DIR)/fdtd_server: $(BUILD_DIR)/fdtd_server.o $(COMMON_OBJ) $(SOLVER_OBJ) | $(BIN_DIR)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 $(BIN_DIR)/fdtd_client: $(BUILD_DIR)/fdtd_client.o $(COMMON_OBJ) | $(BIN_DIR)
