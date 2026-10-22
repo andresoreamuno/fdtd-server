@@ -6,8 +6,6 @@ Primer Proyecto II Ciclo 2026.
 ## Integrantes
 
 - Andres Oreamuno Varela
-- Andres Villegas Baltodano
-- Emanuel Gonzalez Chaves
 
 ## Instrucciones
 
@@ -63,3 +61,7 @@ Ejemplo:
 ```bash
 ./bin/fdtd_client 127.0.0.1 8080 SUBMIT 100 100 500 4 10 50 50
 ```
+
+##Presentación
+
+https://canva.link/3aru0ozte69rau8
