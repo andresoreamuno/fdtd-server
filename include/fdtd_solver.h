@@ -6,7 +6,12 @@
 
 typedef struct {
     int step;
-    rwlock_t lock;//protects step
+    unsigned long job_id; //snapshot job id
+    int nx; //snapshot size x
+    int ny; //snapshot size y
+    int snapshot_step; //snapshot step
+    double **ez;
+    rwlock_t lock;//protects fields
 } fdtd_published_t;
 
 typedef struct {
@@ -30,6 +35,9 @@ typedef struct {
     int last_row;
     fdtd_sim_t *sim;
 } fdtd_thread_t;
+
+double **create_grid(int rows, int cols);
+void destroy_grid(double **grid, int rows);
 
 int fdtd_init(fdtd_sim_t *sim, int nx, int ny, int steps, int threads, int k, int sx, int sy);
 int fdtd_run(fdtd_sim_t *sim);

@@ -183,6 +183,22 @@ static void *dispatcher(void *arg)
                                 job.id, job.nx,job.ny,job.steps,job.threads, job.k, job.sx, job.sy);
         fflush(stdout);
 
+        //Init step
+        rwlock_write_lock(&g_published.lock);
+        g_published.step = 0;
+
+        //Cleans previous snapshot and prepares current job one
+        destroy_grid(g_published.ez,g_published.nx);
+        g_published.ez = NULL;
+        if (job.k>0)
+            g_published.ez = create_grid(job.nx, job.ny);
+        g_published.job_id = job.id;
+        g_published.nx = job.nx;
+        g_published.ny = job.ny;
+        g_published.snapshot_step = 0;
+
+        rwlock_write_unlock(&g_published.lock);
+
         //change job status to running
         pthread_mutex_lock(&g_job_table.mutex);
         g_job_table.job[job.id].state = V_JOB_RUNNING;
@@ -284,6 +300,53 @@ static const char *parse_id(char **rest, unsigned long *id)
     return NULL;   
 }
 
+static const char *parse_peek(char **rest, unsigned long *id, int *i, int *j)
+{
+    long values[3];
+
+    for (int p = 0; p < 3; ++p)
+    {
+        char *param = strtok_r(NULL, " ", rest);
+
+        if (param == NULL)
+            return "missing params";   
+
+        char *end = NULL;
+        errno = 0;
+
+        values[p] = strtol(param, &end, 10);
+        if (errno != 0 || end == param || *end != '\0' || values[p] < 0 || values[p] > MAX_SIZE)
+            return "invalid input";
+
+    } 
+
+    if (strtok_r(NULL," ", rest) != NULL)
+        return "too many params";
+
+    if (values[0] < 1 || values[0]>MAX_JOBS)
+        return "invalid id";
+
+    *id = (unsigned long)values[0];
+    *i = (int)values[1];
+    *j = (int)values[2];
+    return NULL;   
+}
+
+static void get_peek(unsigned long id, int i, int j, char *reply)
+{
+    rwlock_read_lock(&g_published.lock);
+
+    if (g_published.job_id != id || g_published.snapshot_step == 0)
+        sprintf(reply,"ERROR there are no snapshots\n");
+    else if (i >= g_published.nx || j >= g_published.ny)
+        sprintf(reply, "ERROR invalid cell position");
+    else
+        sprintf(reply, "VALUE %d %.10e\n",g_published.snapshot_step,g_published.ez[i][j]);
+
+    rwlock_read_unlock(&g_published.lock);
+
+}
+
 static double duration(struct timespec start, struct timespec end)
 {
     return (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
@@ -311,18 +374,21 @@ static void get_status(unsigned long id, char *reply)
                 if (g_job_table.job[i].state == V_JOB_QUEUED)
                     ++position;
 
-            sprintf(reply, "QUEUED position %lu\n", position);
+            sprintf(reply, "QUEUED %lu\n", position);
             break;
         }
         case V_JOB_RUNNING:
         {
-            //TODO
-            sprintf(reply, "RUNNING\n");
+            rwlock_read_lock(&g_published.lock);
+            int step = g_published.step;
+            rwlock_read_unlock(&g_published.lock);
+
+            sprintf(reply, "RUNNING %d/%d\n",step,info->job.steps);
             break;
         }
         case V_JOB_DONE:
         {
-            sprintf(reply, "DONE %f seconds\n", duration(info->start,info->end));
+            sprintf(reply, "DONE %f\n", duration(info->start,info->end));
             break;
         }
         default:
@@ -451,8 +517,18 @@ static void *handle_connection(void *arg)
                 }  
                 //TODO
                 case V_PEEK:
-                    sprintf(reply, "PEEK pending...\n");
+                {
+                    unsigned long id;
+                    int i, j;
+                    const char *error = parse_peek(&rest,&id,&i,&j);
+
+                    if (error != NULL)
+                        sprintf(reply,"ERROR %s\n", error);
+                    else
+                        get_peek(id,i,j,reply);
                     break;
+
+                }
                 case V_RESULT:
                 {
                     unsigned long id;
@@ -532,6 +608,11 @@ int main(int argc, char **argv)
 
     rwlock_init(&g_published.lock);
     g_published.step = 0;
+    g_published.job_id = 0;
+    g_published.nx = 0;
+    g_published.ny = 0;
+    g_published.snapshot_step = 0;
+    g_published.ez = NULL;
 
     //Init semaphores
     sem_init(&g_job_queue.free,0,QUEUE_CAPACITY);
@@ -632,6 +713,7 @@ int main(int argc, char **argv)
     sem_destroy(&g_job_queue.busy);
     pthread_mutex_destroy(&g_job_queue.mutex);
     pthread_mutex_destroy(&g_job_table.mutex); 
+    destroy_grid(g_published.ez,g_published.nx);
     rwlock_destroy(&g_published.lock);
 
     printf("\naccepted: %lu\n", accepted);

@@ -41,8 +41,8 @@ $(BIN_DIR)/fdtd_server: $(BUILD_DIR)/fdtd_server.o $(COMMON_OBJ) $(SOLVER_OBJ) |
 $(BIN_DIR)/fdtd_client: $(BUILD_DIR)/fdtd_client.o $(COMMON_OBJ) | $(BIN_DIR)
 	$(CC) $(LDFLAGS) -o $@ $^
 
-$(BIN_DIR)/fdtd_bench: $(BUILD_DIR)/fdtd_bench.o | $(BIN_DIR)
-	$(CC) $(LDFLAGS) -o $@ $^
+$(BIN_DIR)/fdtd_bench: $(BUILD_DIR)/fdtd_bench.o $(SOLVER_OBJ) | $(BIN_DIR)
+	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o $@ $<

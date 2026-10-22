@@ -13,7 +13,7 @@
 #define POINT_PER_WAVELENGTH 20.0 //PPW constant
 #define COURANT_NUMBER 0.70710678118654752440 //Courant number (1/square(2))
 
-static double **create_grid(int rows, int cols)
+double **create_grid(int rows, int cols)
 {
     double **grid = malloc(rows * sizeof(double *));
     if (grid == NULL)
@@ -34,7 +34,7 @@ static double **create_grid(int rows, int cols)
     return grid;
 }
 
-static void destroy_grid(double **grid, int rows)
+void destroy_grid(double **grid, int rows)
 {
     if (grid == NULL)
         return;
@@ -110,6 +110,16 @@ static void *solver_thread(void *arg)
         {
             rwlock_write_lock(&sim->published->lock);
             sim->published->step = q+1;
+
+            //Checks if step is step k
+            if ((sim->k > 0) && ((q + 1) % sim->k == 0) && (sim->published->ez != NULL))
+            {
+                for (int m = 0; m < sim->nx; ++m)
+                    for (int n = 0; n < sim->ny; ++n)
+                        sim->published->ez[m][n] = sim->Ez[m][n];
+                sim->published->snapshot_step = q + 1;
+            }
+
             rwlock_write_unlock(&sim->published->lock);
         }
     }
