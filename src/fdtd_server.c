@@ -69,6 +69,7 @@ typedef struct {
     int state; //V_JOB_QUEUED,V_JOB_RUNNING,V_JOB_DONE
     struct timespec start;
     struct timespec end;
+    double result; 
 } job_info_t;
 
 typedef struct {
@@ -86,6 +87,8 @@ static job_queue_t g_job_queue = {
 static job_table_t g_job_table = {
     .mutex = PTHREAD_MUTEX_INITIALIZER
 };
+
+static fdtd_published_t g_published;
 
 static unsigned long enqueue_job(job_queue_t *queue, job_t *job)
 {
@@ -191,21 +194,28 @@ static void *dispatcher(void *arg)
         fdtd_sim_t sim;
         if (fdtd_init(&sim, job.nx, job.ny, job.steps, job.threads, job.k, job.sx, job.sy) == 0)
         {
+            sim.published = &g_published;
             fdtd_run(&sim);
-            printf("Dispatcher: job %lu done, result: %.10e\n",job.id,fdtd_sum_abs_ez(&sim));
+            double result = fdtd_sum_abs_ez(&sim);
+            printf("Dispatcher: job %lu done, result: %.10e\n",job.id,result);
             fflush(stdout);
             fdtd_destroy(&sim);
+
+            //records result in job table
+            pthread_mutex_lock(&g_job_table.mutex);
+            g_job_table.job[job.id].result = result;
+            pthread_mutex_unlock(&g_job_table.mutex);
         }
         else
         {
-            fprintf(stderr, "Dispatcher: job %lu init error", job.id);
+            fprintf(stderr, "Dispatcher: job %lu init error\n", job.id);
         }
 
 
         //change job status to done
         pthread_mutex_lock(&g_job_table.mutex);
-        g_job_table.job[job.id].state = V_JOB_RUNNING;
-        clock_gettime(CLOCK_MONOTONIC, &g_job_table.job[job.id].start);
+        g_job_table.job[job.id].state = V_JOB_DONE;
+        clock_gettime(CLOCK_MONOTONIC, &g_job_table.job[job.id].end);
         pthread_mutex_unlock(&g_job_table.mutex);
     }
         
@@ -297,11 +307,11 @@ static void get_status(unsigned long id, char *reply)
         case V_JOB_QUEUED:
         {
             unsigned long position = 1;
-            for (unsigned long i = 1; 1 < id; ++i)
+            for (unsigned long i = 1; i < id; ++i)
                 if (g_job_table.job[i].state == V_JOB_QUEUED)
                     ++position;
 
-            sprintf(reply, "QUEUED %lu\n", position);
+            sprintf(reply, "QUEUED position %lu\n", position);
             break;
         }
         case V_JOB_RUNNING:
@@ -312,7 +322,7 @@ static void get_status(unsigned long id, char *reply)
         }
         case V_JOB_DONE:
         {
-            sprintf(reply, "DONE %f\n", duration(info->start,info->end));
+            sprintf(reply, "DONE %f seconds\n", duration(info->start,info->end));
             break;
         }
         default:
@@ -321,6 +331,22 @@ static void get_status(unsigned long id, char *reply)
             break;
         }
     }
+
+    pthread_mutex_unlock(&g_job_table.mutex);
+}
+
+static void get_result(unsigned long id, char *reply)
+{
+    pthread_mutex_lock(&g_job_table.mutex);
+
+    job_info_t *info = &g_job_table.job[id];
+
+    if (info->job.id == 0)
+        sprintf(reply,"ERROR unknown job\n");
+    else if (info->state != V_JOB_DONE)
+        sprintf(reply,"ERROR job in progress\n");
+    else
+        sprintf(reply,"RESULT %.10e -\n",info->result);//TODO SNAPSHOT     
 
     pthread_mutex_unlock(&g_job_table.mutex);
 }
@@ -428,8 +454,17 @@ static void *handle_connection(void *arg)
                     sprintf(reply, "PEEK pending...\n");
                     break;
                 case V_RESULT:
-                    sprintf(reply, "RESULT pending...\n");
+                {
+                    unsigned long id;
+                    const char *error = parse_id(&rest, &id);
+
+                    if (error != NULL)
+                        sprintf(reply, "ERROR %s\n", error);
+                    else
+                        get_result(id,reply);
                     break;
+
+                }
                 case V_SHUTDOWN:
                     g_running = 0;
                     shutdown(g_listen_file_descriptor,SHUT_RD);//Shutdown socket  
@@ -494,6 +529,9 @@ int main(int argc, char **argv)
     }
 
     g_listen_file_descriptor = listen_file_descriptor; 
+
+    rwlock_init(&g_published.lock);
+    g_published.step = 0;
 
     //Init semaphores
     sem_init(&g_job_queue.free,0,QUEUE_CAPACITY);
@@ -594,6 +632,7 @@ int main(int argc, char **argv)
     sem_destroy(&g_job_queue.busy);
     pthread_mutex_destroy(&g_job_queue.mutex);
     pthread_mutex_destroy(&g_job_table.mutex); 
+    rwlock_destroy(&g_published.lock);
 
     printf("\naccepted: %lu\n", accepted);
 

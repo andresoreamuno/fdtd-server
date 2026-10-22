@@ -105,6 +105,13 @@ static void *solver_thread(void *arg)
             sim->Ez[sim->sx][sim->sy] = sim->Ez[sim->sx][sim->sy] + ricker(q);
 
         barrier_wait(&sim->barrier);
+
+        if (data->id==0 && sim->published != NULL)
+        {
+            rwlock_write_lock(&sim->published->lock);
+            sim->published->step = q+1;
+            rwlock_write_unlock(&sim->published->lock);
+        }
     }
 
     return NULL;
@@ -119,6 +126,7 @@ int fdtd_init(fdtd_sim_t *sim, int nx, int ny, int steps, int threads, int k, in
     sim->k = k;
     sim->sx = sx;
     sim->sy = sy;
+    sim->published = NULL;
 
     //Init arrays
     sim->Ez = create_grid(nx, ny);

@@ -2,6 +2,12 @@
 #define FDTD_SOLVER_H
 
 #include "fdtd_barrier.h"
+#include "fdtd_rwlock.h"
+
+typedef struct {
+    int step;
+    rwlock_t lock;//protects step
+} fdtd_published_t;
 
 typedef struct {
     int nx; //Ez rows
@@ -15,6 +21,7 @@ typedef struct {
     double **Hx; //electric field x
     double **Hy; //electric field y
     barrier_t barrier; //solver threads barrier
+    fdtd_published_t *published;
 } fdtd_sim_t;
 
 typedef struct {

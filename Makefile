@@ -17,11 +17,16 @@ BIN_DIR   := bin
 
 CPPFLAGS := -I$(INC_DIR) -MMD -MP
 
+# make SIN_BARRERA=1 compiles without barriers.
+ifdef SIN_BARRERA
+CPPFLAGS += -DSIN_BARRERA
+endif
+
 # net_util linked to server and client.
 COMMON_OBJ := $(BUILD_DIR)/net_util.o
 
 # solver
-SOLVER_OBJ := $(BUILD_DIR)/fdtd_solver.o $(BUILD_DIR)/fdtd_barrier.o
+SOLVER_OBJ := $(BUILD_DIR)/fdtd_solver.o $(BUILD_DIR)/fdtd_barrier.o $(BUILD_DIR)/fdtd_rwlock.o
 
 PROGRAMS := fdtd_server fdtd_client fdtd_bench
 BINARIES := $(addprefix $(BIN_DIR)/,$(PROGRAMS))
